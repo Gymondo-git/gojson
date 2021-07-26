@@ -334,7 +334,8 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 
 		tagList := make([]string, 0)
 		for _, t := range tags {
-			tagList = append(tagList, fmt.Sprintf("%s:\"%s\"", t, key))
+			//tagList = append(tagList, fmt.Sprintf("%s:\"%s\"", t, key))
+			tagList = append(tagList, fmt.Sprintf("%s:\"%s,omitempty\"", t, strings.ToLower(key)))
 		}
 
 		structure += fmt.Sprintf("\n%s %s `%s`",
