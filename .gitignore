@@ -6,3 +6,13 @@
 build/
 conf.go
 build/
+
+.idea/
+*.iml
+.terraform/
+.terraform-plans/
+*.tfstate*
+.venv
+output.txt
+!.terraform.lock.hcl
+dev.log
