@@ -1,4 +1,4 @@
-module gojson
+module github.com/gymondo-git/gojson
 
 go 1.16
 
