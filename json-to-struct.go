@@ -331,14 +331,7 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 
 		tagList := make([]string, 0)
 		for _, t := range tags {
-			var tag string
-			if t == "json" {
-				tag = buildJsonTag(valueType, t, key)
-			} else {
-				tag = fmt.Sprintf("%s:\"%s\"", t, key)
-			}
-
-			tagList = append(tagList, tag)
+			tagList = append(tagList, fmt.Sprintf("%s:\"%s,omitempty\"", t, key))
 		}
 
 		structure += fmt.Sprintf("\n%s *%s `%s`",
@@ -347,19 +340,6 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 			strings.Join(tagList, " "))
 	}
 	return structure
-}
-
-// For json tags we always add omitempty by default.
-// We only skip it for bool types because it can cause a misbehavivour with
-// GoLang default value.
-//
-// For more info: https://github.com/golang/go/issues/13284
-//
-func buildJsonTag(valueType string, t string, key string) string {
-	if valueType == "bool" {
-		return fmt.Sprintf("%s:\"%s\"", t, key)
-	}
-	return fmt.Sprintf("%s:\"%s,omitempty\"", t, key)
 }
 
 // FmtFieldName formats a string as a struct key
