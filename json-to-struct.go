@@ -197,7 +197,7 @@ func readFile(input io.Reader) ([]byte, error) {
 }
 
 // Generate a struct definition given a JSON string representation of an object and a name structName.
-func Generate(input io.Reader, parser Parser, structName, pkgName string, tags []string, convertFloats bool) ([]byte, error) {
+func Generate(input io.Reader, parser Parser, structName, pkgName string, tags []string, convertFloats, usePointers bool) ([]byte, error) {
 	var subStructMap = make(map[string]string)
 
 	var result map[string]interface{}
@@ -216,7 +216,7 @@ func Generate(input io.Reader, parser Parser, structName, pkgName string, tags [
 		src := fmt.Sprintf("package %s\n\ntype %s %s\n",
 			pkgName,
 			structName,
-			typeForValue(iresult, structName, tags, subStructMap, convertFloats))
+			typeForValue(iresult, structName, tags, subStructMap, convertFloats, usePointers))
 		formatted, err := format.Source([]byte(src))
 		if err != nil {
 			err = fmt.Errorf("error formatting: %s, was formatting\n%s", err, src)
@@ -229,7 +229,7 @@ func Generate(input io.Reader, parser Parser, structName, pkgName string, tags [
 	src := fmt.Sprintf("package %s\ntype %s %s}",
 		pkgName,
 		structName,
-		generateTypes(result, structName, tags, 0, subStructMap, convertFloats))
+		generateTypes(result, structName, tags, 0, subStructMap, convertFloats, usePointers))
 
 	keys := make([]string, 0, len(subStructMap))
 	for key := range subStructMap {
@@ -260,7 +260,7 @@ func convertKeysToStrings(obj map[interface{}]interface{}) map[string]interface{
 }
 
 // Generate go struct entries for a map[string]interface{} structure
-func generateTypes(obj map[string]interface{}, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool) string {
+func generateTypes(obj map[string]interface{}, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool, usePointers bool) string {
 	structure := "struct {"
 
 	keys := make([]string, 0, len(obj))
@@ -271,7 +271,7 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 
 	for _, key := range keys {
 		value := obj[key]
-		valueType := typeForValue(value, structName, tags, subStructMap, convertFloats)
+		valueType := typeForValue(value, structName, tags, subStructMap, convertFloats, usePointers)
 
 		//value = mergeElements(value)
 
@@ -281,9 +281,9 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 			if len(value) > 0 {
 				sub := ""
 				if v, ok := value[0].(map[interface{}]interface{}); ok {
-					sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+					sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats, usePointers) + "}"
 				} else if v, ok := value[0].(map[string]interface{}); ok {
-					sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+					sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats, usePointers) + "}"
 				}
 
 				if sub != "" {
@@ -301,7 +301,7 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 				}
 			}
 		case map[interface{}]interface{}:
-			sub := generateTypes(convertKeysToStrings(value), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+			sub := generateTypes(convertKeysToStrings(value), structName, tags, depth+1, subStructMap, convertFloats, usePointers) + "}"
 			subName := fmt.Sprintf("%v%v", structName, strings.Title(strings.ToLower(key)))
 
 			if subStructMap != nil {
@@ -313,7 +313,7 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 			}
 			valueType = subName
 		case map[string]interface{}:
-			sub := generateTypes(value, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+			sub := generateTypes(value, structName, tags, depth+1, subStructMap, convertFloats, usePointers) + "}"
 			subName := fmt.Sprintf("%v%v", structName, strings.Title(strings.ToLower(key)))
 
 			if subStructMap != nil {
@@ -331,11 +331,21 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 
 		tagList := make([]string, 0)
 		for _, t := range tags {
-			tagList = append(tagList, fmt.Sprintf("%s:\"%s,omitempty\"", t, key))
+			var tagOpt string
+			if t == "json" && (usePointers || valueType != "bool") {
+				tagOpt = ",omitempty"
+			}
+			tagList = append(tagList, fmt.Sprintf("%s:\"%s%s\"", t, key, tagOpt))
 		}
 
-		structure += fmt.Sprintf("\n%s *%s `%s`",
+		var ptrChar string
+		if usePointers {
+			ptrChar = "*"
+		}
+
+		structure += fmt.Sprintf("\n%s %s%s `%s`",
 			fieldName,
+			ptrChar,
 			valueType,
 			strings.Join(tagList, " "))
 	}
@@ -460,7 +470,7 @@ func lintFieldName(name string) string {
 }
 
 // generate an appropriate struct type entry
-func typeForValue(value interface{}, structName string, tags []string, subStructMap map[string]string, convertFloats bool) string {
+func typeForValue(value interface{}, structName string, tags []string, subStructMap map[string]string, convertFloats bool, usePointers bool) string {
 	//Check if this is an array
 	if objects, ok := value.([]interface{}); ok {
 		types := make(map[reflect.Type]bool, 0)
@@ -468,13 +478,13 @@ func typeForValue(value interface{}, structName string, tags []string, subStruct
 			types[reflect.TypeOf(o)] = true
 		}
 		if len(types) == 1 {
-			return "[]" + typeForValue(mergeElements(objects).([]interface{})[0], structName, tags, subStructMap, convertFloats)
+			return "[]" + typeForValue(mergeElements(objects).([]interface{})[0], structName, tags, subStructMap, convertFloats, usePointers)
 		}
 		return "[]interface{}"
 	} else if object, ok := value.(map[interface{}]interface{}); ok {
-		return generateTypes(convertKeysToStrings(object), structName, tags, 0, subStructMap, convertFloats) + "}"
+		return generateTypes(convertKeysToStrings(object), structName, tags, 0, subStructMap, convertFloats, usePointers) + "}"
 	} else if object, ok := value.(map[string]interface{}); ok {
-		return generateTypes(object, structName, tags, 0, subStructMap, convertFloats) + "}"
+		return generateTypes(object, structName, tags, 0, subStructMap, convertFloats, usePointers) + "}"
 	} else if reflect.TypeOf(value) == nil {
 		return "interface{}"
 	}
